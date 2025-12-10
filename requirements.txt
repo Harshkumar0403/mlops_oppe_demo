@@ -18,4 +18,5 @@ dvc
 shap
 fairlearn
 evidently
+sniffio
 
