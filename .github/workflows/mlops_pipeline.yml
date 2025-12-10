@@ -51,14 +51,26 @@ jobs:
 
           echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
-          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+          gcloud config set project phonic-axle-473506-u8
+
+          # 👉 Make credentials visible to Python clients (google-cloud-storage, etc.)
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
+          echo "GOOGLE_CLOUD_PROJECT=phonic-axle-473506-u8" >> $GITHUB_ENV
 
           echo "Running DVC pull in same session..."
           source .venv/bin/activate
 
+          echo "Existing DVC remotes:"
+          dvc remote list || echo "No DVC remotes configured."
+
           echo "Configuring DVC to use service account key..."
-          # NOTE: 'gcsremote' must match your DVC remote name
-          dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
+          if dvc remote list | grep -q "^gcsremote"; then
+            dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
+          elif dvc remote list | grep -q "^gcs_remote"; then
+            dvc remote modify gcs_remote credentialpath $(pwd)/gcp-key.json
+          else:
+            echo "⚠️ No 'gcsremote' or 'gcs_remote' found. Skipping remote credential config."
+          fi
 
           echo "Running DVC pull:"
           dvc pull -v
@@ -136,7 +148,3 @@ jobs:
           echo "### SHAP Feature Importance" >> report.md
           echo "![SHAP Summary](./artifacts/shap_summary.png)" >> report.md
           cml comment create report.md
-
-
-
-
