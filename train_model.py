@@ -10,7 +10,7 @@ import mlflow.sklearn
 
 # --------- CONFIG ---------
 DEFAULT_DATA_PATH = "data/v0/transactions_2022.csv"  # you can override when calling train_model
-MLFLOW_TRACKING_URI = "http://34.46.228.116:8100"    # <-- your MLflow server
+MLFLOW_TRACKING_URI = "http://34.173.211.130:8100"    # <-- your MLflow server
 MLFLOW_EXPERIMENT_NAME = "Fraud_Detection_Training"
 GCS_BUCKET_NAME = "data_mlops_oppe2prep"
 GCS_MODEL_DESTINATION = "production_models/model.pkl"
