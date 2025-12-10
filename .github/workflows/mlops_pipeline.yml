@@ -34,34 +34,34 @@ jobs:
       # ------------------------------------------
       # GCP AUTH + DVC PULL
       # ------------------------------------------
-      - name: Set up GCP credentials and authenticate
-        env:
-          GCP_B64: ${{ secrets.GCP_CREDENTIALS_B64 }}
-        run: |
-          set -e
+          - name: Set up GCP credentials and authenticate
+            env:
+              GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+            run: |
+              set -e
 
-          echo "$GCP_B64" | base64 -d > gcp-key.json
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-          export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json
+              # Write JSON from secret directly
+              echo "$GCP_SA_KEY" > gcp-key.json
 
-          echo "✓ Decoded service account key"
-          python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
+              echo "✓ Wrote service account key to gcp-key.json"
+              python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
 
-          echo "Installing Google Cloud CLI..."
-          sudo apt-get update && sudo apt-get install -y google-cloud-cli
+              echo "Installing Google Cloud CLI..."
+              sudo apt-get update && sudo apt-get install -y google-cloud-cli
 
-          echo "Authenticating with GCP..."
-          gcloud auth activate-service-account --key-file=gcp-key.json
-          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+              echo "Authenticating with GCP..."
+              gcloud auth activate-service-account --key-file=gcp-key.json
+              gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
 
-          echo "Running DVC pull in same session..."
-          source .venv/bin/activate
+              echo "Running DVC pull in same session..."
+              source .venv/bin/activate
 
-          echo "Configuring DVC to use service account key..."
-          dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
+              echo "Configuring DVC to use service account key..."
+              dvc remote modify gcsremote credentialpath $(pwd)/gcp-key.json
 
-          echo "Running DVC pull:"
-          dvc pull -v
+              echo "Running DVC pull:"
+              dvc pull -v
+
 
       # ------------------------------------------
       # PRE-TRAINING VALIDATION GATES
