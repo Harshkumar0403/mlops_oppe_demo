@@ -119,7 +119,7 @@ jobs:
         run: |
           source .venv/bin/activate
           echo "## 🧠 Model Explainability (SHAP)" >> report.md
-          python generate_explanations.py >> report.md
+      # python generate_explanations.py >> report.md
 
       - name: Check for Model Bias (Fairlearn)
         run: |
