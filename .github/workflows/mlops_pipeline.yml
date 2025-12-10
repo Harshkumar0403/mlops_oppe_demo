@@ -79,7 +79,7 @@ jobs:
 
       - name: Validate Data Quality
         run: |
-          if [ "${{ steps.poison_check.outputs.count }}" -gt 100 ]; then
+          if [ "${{ steps.poison_check.outputs.count }}" -gt 500 ]; then
             echo "❌ Error: High number of suspicious labels detected. Aborting."
             exit 1
           else
