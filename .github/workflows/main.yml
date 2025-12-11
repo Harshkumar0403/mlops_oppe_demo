@@ -218,7 +218,7 @@ jobs:
           REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Post CML Report
-        if: ${{ secrets.CML_REPO_TOKEN != '' }}
+    #if: ${{ secrets.CML_REPO_TOKEN != '' }}
         env:
           REPO_TOKEN: ${{ secrets.CML_REPO_TOKEN }}
         run: |
