@@ -15,9 +15,7 @@ env:
   IMAGE_NAME: fraud-api
   GKE_CLUSTER: fraud-api-cluster
   GKE_ZONE: asia-south1-a
-  # computed later: ARTIFACT_IMAGE -> asia-south1-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}
   GCS_BUCKET: data_mlops_oppe2prep
-  MLFLOW_DB: ${{ github.workspace }}/mlflow.db
 
 jobs:
   build-validate-deploy:
@@ -27,212 +25,201 @@ jobs:
         shell: bash
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    # -----------------------------
+    # CHECKOUT + PYTHON ENV
+    # -----------------------------
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Python 3.10
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.10"
 
-      - name: Create venv & install dependencies
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          pip install --upgrade pip
-          # Install main deps; ensure dvc[gcp] to support GCS remotes if present
-          pip install --no-cache-dir -r requirements.txt
-          pip install --no-cache-dir "dvc[gcp]"
+    - name: Create venv & install dependencies
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install dvc
 
-      - name: Configure GCP credentials (raw JSON secret)
-        env:
-          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
-        run: |
-          if [ -z "$GCP_SA_KEY" ]; then
-            echo "Error: secret GCP_SA_KEY not found" >&2
-            exit 1
-          fi
-          echo "$GCP_SA_KEY" > gcp-key.json
-          # Validate JSON
-          python -m json.tool gcp-key.json > /dev/null || (echo "Invalid JSON key" >&2 && exit 1)
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-          echo "GCP_KEY_PATH=$(pwd)/gcp-key.json" >> $GITHUB_ENV
-          # Authenticate gcloud
-          curl -sSL https://sdk.cloud.google.com | bash >/dev/null 2>&1 || true
-          # Use installed gcloud from the runner (preinstalled); authenticate
-          gcloud auth activate-service-account --key-file=gcp-key.json
-          gcloud config set project $PROJECT_ID
+    # -----------------------------
+    # GCP AUTH
+    # -----------------------------
+    - name: Configure GCP credentials
+      env:
+        GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+      run: |
+        echo "$GCP_SA_KEY" > gcp-key.json
+        python -m json.tool gcp-key.json > /dev/null
+        echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/gcp-key.json" >> $GITHUB_ENV
+        echo "GCP_KEY_PATH=$(pwd)/gcp-key.json" >> $GITHUB_ENV
 
-      - name: Configure docker for Artifact Registry
-        run: |
-          # allow docker push to artifact registry
-          gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+        gcloud auth activate-service-account --key-file=gcp-key.json
+        gcloud config set project $PROJECT_ID
 
-      - name: DVC: show remotes & pull data (if configured)
-        env:
-          GOOGLE_APPLICATION_CREDENTIALS: $GCP_KEY_PATH
-        run: |
-          source .venv/bin/activate
-          echo "DVC version: $(dvc --version)"
-          dvc remote list || echo "No dvc remotes configured."
+    - name: Configure docker for Artifact Registry
+      run: |
+        gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
 
-          if dvc remote list | grep -q "^gcsremote" ; then
-            echo "Configuring gcsremote credentialpath..."
-            dvc remote modify gcsremote credentialpath "$GCP_KEY_PATH"
-          elif dvc remote list | grep -q "^gcs_remote" ; then
-            echo "Configuring gcs_remote credentialpath..."
-            dvc remote modify gcs_remote credentialpath "$GCP_KEY_PATH"
-          else
-            echo "No known GCS-named remote found; skipping remote credential modification."
-          fi
+    # -----------------------------
+    # DVC PULL (LOCAL MODE)
+    # -----------------------------
+    - name: DVC pull (local only)
+      env:
+        GOOGLE_APPLICATION_CREDENTIALS: $GCP_KEY_PATH
+      run: |
+        source .venv/bin/activate
+        echo "DVC version: $(dvc --version)"
 
-          dvc pull -v || echo "dvc pull failed or nothing to pull; continuing"
+        # No remote needed. This loads data from repo.
+        dvc pull -v || echo "DVC local pull failed or nothing to pull."
 
+    # -----------------------------
+    # PRE-TRAINING VALIDATION
+    # -----------------------------
+    - name: Data Poisoning Check
+      id: poison
+      run: |
+        source .venv/bin/activate
+        echo "## Data Poisoning Check" > report.md
+        python check_poisoning.py --data-path data/v0/transactions_2022.csv >> report.md || true
+        COUNT=$(grep -oP 'Found \K[0-9]+' report.md | head -1 || true)
+        echo "count=$COUNT" >> $GITHUB_OUTPUT
 
-      - name: Pre-training: Data Poisoning check
-        id: poison_check
-        run: |
-          source .venv/bin/activate
-          echo "## Data Poisoning Check" > report.md
-          python check_poisoning.py --data-path data/v0/transactions_2022.csv >> report.md || true
-          # Parse suspicious count (grep style tolerant)
-          SUSPICIOUS=$(grep -oP 'Found \K[0-9]+' report.md | head -1 || true)
-          echo "suspicious_count=${SUSPICIOUS}" >> $GITHUB_OUTPUT
-
-      - name: Validate Data Quality (abort on too many suspicious labels)
-        run: |
-          COUNT=${{ steps.poison_check.outputs.suspicious_count }}
-          if [ -z "$COUNT" ]; then COUNT=0; fi
-          echo "Suspicious labels: $COUNT"
-          if [ "$COUNT" -gt 1000 ]; then
-            echo "Too many suspicious labels ($COUNT). Failing pipeline." >&2
-            exit 1
-          fi
-          echo "Data poisoning check passed."
-
-      - name: Check for Data Drift
-        run: |
-          source .venv/bin/activate
-          echo "## Data Drift Check" >> report.md
-          python check_drift.py >> report.md || echo "Drift check returned non-zero (ignored)"
-
-      - name: Train model (MLflow) and save artifact
-        env:
-          # set sqlite local mlflow backend to avoid /mlruns permission issues
-          MLFLOW_TRACKING_URI: sqlite:///${{ github.workspace }}/mlflow.db
-          GCS_BUCKET: ${{ env.GCS_BUCKET }}
-        run: |
-          source .venv/bin/activate
-          python train_model.py
-
-      - name: Save ml artifacts (locally produced)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ml-artifacts
-          path: |
-            artifacts/**
-            mlflow.db
-            mlruns/**
-
-      - name: Build & tag Docker image (Artifact Registry)
-        env:
-          ARTIFACT_IMAGE: ${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${IMAGE_NAME}
-        run: |
-          source .venv/bin/activate
-          IMAGE="${ARTIFACT_IMAGE}"
-          echo "Building image $IMAGE:latest"
-          docker build -t ${IMAGE}:latest .
-          GIT_SHA=$(git rev-parse --short HEAD)
-          docker tag ${IMAGE}:latest ${IMAGE}:${GIT_SHA}
-          echo "Tagged images: ${IMAGE}:latest and ${IMAGE}:${GIT_SHA}"
-          # push both tags
-          docker push ${IMAGE}:${GIT_SHA}
-          docker push ${IMAGE}:latest
-          echo "IMAGE_TAG=${IMAGE}:${GIT_SHA}" >> $GITHUB_ENV
-          echo "IMAGE_LATEST=${IMAGE}:latest" >> $GITHUB_ENV
-
-      - name: Configure kubectl (get credentials)
-        env:
-          PROJECT_ID: ${{ env.PROJECT_ID }}
-        run: |
-          gcloud container clusters get-credentials $GKE_CLUSTER --zone $GKE_ZONE --project $PROJECT_ID
-
-      - name: Deploy to GKE (apply manifests & set image)
-        env:
-          IMAGE_TO_DEPLOY: ${{ env.IMAGE_TAG }}
-        run: |
-          # If manifests not present or first time, ensure deployment exists; apply will create or update
-          kubectl apply -f k8s/deployment.yaml
-          kubectl apply -f k8s/service.yaml
-          kubectl apply -f k8s/hpa.yaml || echo "HPA apply failed or already exists"
-          # Update image to a specific SHA-tag to force rollout
-          # Container name must match manifest (api-container)
-          kubectl set image deployment/fraud-detection-api api-container=${IMAGE_TO_DEPLOY} --record
-          kubectl rollout status deployment/fraud-detection-api --timeout=180s
-
-      - name: Wait for external IP & show service
-        id: svc
-        run: |
-          # Wait up to 2 minutes for external IP
-          for i in {1..24}; do
-            IP=$(kubectl get svc fraud-detection-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
-            if [ -n "$IP" ]; then
-              echo "Found IP: $IP"
-              echo "EXTERNAL_IP=$IP" >> $GITHUB_OUTPUT
-              exit 0
-            fi
-            echo "Waiting for external IP... ($i/24)"
-            sleep 5
-          done
-          echo "No external IP assigned" >&2
+    - name: Abort pipeline if poisoned
+      run: |
+        C=${{ steps.poison.outputs.count }}
+        if [ -z "$C" ]; then C=0; fi
+        echo "Suspicious labels: $C"
+        if [ "$C" -gt 1000 ]; then
+          echo "Too many suspicious labels. Aborting."
           exit 1
+        fi
 
-      - name: Simple smoke test (curl /predict)
-        run: |
-          EXTERNAL_IP=${{ steps.svc.outputs.EXTERNAL_IP }}
-          echo "Testing service at $EXTERNAL_IP"
-          # Try 3 times (service may need a moment)
-          for i in 1 2 3; do
-            set -o pipefail
-            curl -sS -X POST "http://${EXTERNAL_IP}:8000/predict" -H "Content-Type: application/json" -d '{"transaction_id":0}' && break || echo "attempt $i failed"
-            sleep 3
-          done
+    - name: Data Drift Check
+      run: |
+        source .venv/bin/activate
+        echo "## Data Drift Check" >> report.md
+        python check_drift.py >> report.md
 
-      - name: Run headless Locust load test (2 minutes)
-        if: success()
-        run: |
-          EXTERNAL_IP=${{ steps.svc.outputs.EXTERNAL_IP }}
-          echo "Running locust against http://${EXTERNAL_IP}"
-          source .venv/bin/activate
-          # Run headless for 2 minutes with 50 users spawn rate 5/sec (tune as needed)
-          locust -f locust_test.py --headless -u 50 -r 5 --run-time 2m --host http://${EXTERNAL_IP} || echo "Locust finished or failed"
+    # -----------------------------
+    # TRAINING (MLFLOW)
+    # -----------------------------
+    - name: Train model
+      env:
+        MLFLOW_TRACKING_URI: sqlite:///${{ github.workspace }}/mlflow.db
+        GCS_BUCKET: ${{ env.GCS_BUCKET }}
+      run: |
+        source .venv/bin/activate
+        python train_model.py
 
-      - name: Upload final artifacts (reports, shap, mlflow)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: final-artifacts
-          path: |
-            artifacts/**
-            report.md
-            shap_summary.png
-            shap_force_plot_all.html
-            artifacts/**
+    # -----------------------------
+    # SAVE ARTIFACTS
+    # -----------------------------
+    - name: Upload training artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ml-artifacts
+        path: |
+          artifacts/**
+          mlflow.db
+          mlruns/**
 
-      - name: Setup CML
-        uses: iterative/setup-cml@v2
-        env:
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # -----------------------------
+    # BUILD DOCKER IMAGE
+    # -----------------------------
+    - name: Build & Push Docker Image
+      env:
+        ARTIFACT_IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}
+      run: |
+        docker build -t $ARTIFACT_IMAGE:latest .
+        SHA=$(git rev-parse --short HEAD)
+        docker tag $ARTIFACT_IMAGE:latest $ARTIFACT_IMAGE:$SHA
+        docker push $ARTIFACT_IMAGE:latest
+        docker push $ARTIFACT_IMAGE:$SHA
+        echo "IMAGE_SHA=$ARTIFACT_IMAGE:$SHA" >> $GITHUB_ENV
 
-      - name: Post CML Report (PR comment)
-        if: ${{ secrets.CML_REPO_TOKEN != '' }}
-        env:
-          REPO_TOKEN: ${{ secrets.CML_REPO_TOKEN }}
-        run: |
-          echo "### Automated MLOps Report" > report.md
-          echo "See attached artifacts and MLflow run." >> report.md
-          echo "![SHAP](./artifacts/shap_summary.png)" >> report.md
-          cml comment create report.md
+    # -----------------------------
+    # GKE DEPLOYMENT
+    # -----------------------------
+    - name: Configure kubectl
+      run: |
+        gcloud container clusters get-credentials $GKE_CLUSTER --zone $GKE_ZONE --project $PROJECT_ID
 
+    - name: Deploy to GKE
+      run: |
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+        kubectl apply -f k8s/hpa.yaml || true
+        kubectl set image deployment/fraud-detection-api api-container=${IMAGE_SHA} --record
+        kubectl rollout status deployment/fraud-detection-api --timeout=180s
 
+    # -----------------------------
+    # EXTERNAL IP LOOKUP
+    # -----------------------------
+    - name: Wait for External IP
+      id: svc_ip
+      run: |
+        for i in {1..24}; do
+          IP=$(kubectl get svc fraud-detection-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null)
+          if [ -n "$IP" ]; then
+            echo "EXTERNAL_IP=$IP" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "Waiting for service external IP..."
+          sleep 5
+        done
+        echo "Error: External IP not assigned"
+        exit 1
+
+    # -----------------------------
+    # SMOKE TEST
+    # -----------------------------
+    - name: Smoke Test /predict
+      run: |
+        IP=${{ steps.svc_ip.outputs.EXTERNAL_IP }}
+        echo "Testing http://$IP:80/predict"
+        curl -X POST "http://$IP/predict" \
+          -H "Content-Type: application/json" \
+          -d '{"transaction_id": 0}'
+
+    # -----------------------------
+    # LOCUST LOAD TEST
+    # -----------------------------
+    - name: Run Locust load test (2 min)
+      run: |
+        IP=${{ steps.svc_ip.outputs.EXTERNAL_IP }}
+        source .venv/bin/activate
+        locust -f locust_test.py --headless -u 50 -r 5 --run-time 2m --host http://$IP || true
+
+    # -----------------------------
+    # FINAL ARTIFACT UPLOAD
+    # -----------------------------
+    - name: Upload Final Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: final-artifacts
+        path: |
+          artifacts/**
+          report.md
+          mlflow.db
+          mlruns/**
+
+    # -----------------------------
+    # CML REPORT (OPTIONAL)
+    # -----------------------------
+    - name: Setup CML
+      uses: iterative/setup-cml@v2
+      env:
+        REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Post CML Report
+      if: ${{ secrets.CML_REPO_TOKEN != '' }}
+      env:
+        REPO_TOKEN: ${{ secrets.CML_REPO_TOKEN }}
+      run: |
+        echo "### Automated MLOps Report" > cml_report.md
+        echo "Model + Deployment completed successfully." >> cml_report.md
+        cml comment create cml_report.md
