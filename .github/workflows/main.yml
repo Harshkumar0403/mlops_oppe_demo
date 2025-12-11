@@ -25,24 +25,23 @@ jobs:
         shell: bash
 
     steps:
-    # -----------------------------
-    # CHECKOUT + PYTHON ENV
-    # -----------------------------
-    - name: Checkout repository
-      uses: actions/checkout@v4
+    # ------------------------------------------
+      # CHECKOUT + PYTHON ENV
+      # ------------------------------------------
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Set up Python 3.10
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-    - name: Create venv & install dependencies
-      run: |
-        python -m venv .venv
-        source .venv/bin/activate
-        pip install --upgrade pip
-        pip install -r requirements.txt
-        pip install dvc
+      - name: Install dependencies
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
       # ------------------------------------------
       # GCP AUTH + DVC PULL (RAW JSON KEY)
