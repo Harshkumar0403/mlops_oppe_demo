@@ -136,6 +136,8 @@ jobs:
         env:
           ARTIFACT_IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.ARTIFACT_REPO }}/${{ env.IMAGE_NAME }}
         run: |
+        # 1. Authenticate Docker against Google Artifact Registry
+          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
           docker build -t $ARTIFACT_IMAGE:latest .
           SHA=$(git rev-parse --short HEAD)
           docker tag $ARTIFACT_IMAGE:latest $ARTIFACT_IMAGE:$SHA
