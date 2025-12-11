@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/378543787014867200/fd328f29dab44c8ca841763041fff101/artifacts
+end_time: 1765286485380
+entry_point_name: ''
+experiment_id: '378543787014867200'
+lifecycle_stage: active
+run_id: fd328f29dab44c8ca841763041fff101
+run_name: delightful-snipe-372
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765286443169
+status: 4
+tags: []
+user_id: harshkumariitmbs

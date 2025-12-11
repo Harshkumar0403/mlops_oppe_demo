@@ -18,7 +18,7 @@ spec:
       containers:
         - name: api-container
           image: asia-south1-docker.pkg.dev/phonic-axle-473506-u8/fraud-api-repo/fraud-api:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           ports:
             - containerPort: 8000
           resources:

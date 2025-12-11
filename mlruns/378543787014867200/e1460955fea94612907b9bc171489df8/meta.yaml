@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/378543787014867200/e1460955fea94612907b9bc171489df8/artifacts
+end_time: 1765286668908
+entry_point_name: ''
+experiment_id: '378543787014867200'
+lifecycle_stage: active
+run_id: e1460955fea94612907b9bc171489df8
+run_name: redolent-shrew-206
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765286655526
+status: 3
+tags: []
+user_id: harshkumariitmbs

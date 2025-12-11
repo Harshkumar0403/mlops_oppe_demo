@@ -1,0 +1,14 @@
+artifact_uri: mlflow-artifacts:/378543787014867200/b4d2d8b7ab414176b64c1a066b7f560d/artifacts
+end_time: 1765434099842
+entry_point_name: ''
+experiment_id: '378543787014867200'
+lifecycle_stage: active
+run_id: b4d2d8b7ab414176b64c1a066b7f560d
+run_name: abundant-turtle-633
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765434095481
+status: 3
+tags: []
+user_id: harshkumariitmbs_gmail_com

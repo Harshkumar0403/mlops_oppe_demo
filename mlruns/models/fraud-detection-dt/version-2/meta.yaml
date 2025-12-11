@@ -1,0 +1,15 @@
+creation_timestamp: 1765286667742
+current_stage: None
+deployment_job_state: null
+description: ''
+last_updated_timestamp: 1765286667742
+model_id: m-b578a46ed38e4b0eaf3cd8a0c1571985
+name: fraud-detection-dt
+run_id: e1460955fea94612907b9bc171489df8
+run_link: ''
+source: models:/m-b578a46ed38e4b0eaf3cd8a0c1571985
+status: READY
+status_message: null
+storage_location: mlflow-artifacts:/378543787014867200/models/m-b578a46ed38e4b0eaf3cd8a0c1571985/artifacts
+user_id: null
+version: 2
