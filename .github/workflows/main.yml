@@ -70,24 +70,24 @@ jobs:
 
       - name: DVC: show remotes & pull data (if configured)
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ env.GCP_KEY_PATH }}
+          GOOGLE_APPLICATION_CREDENTIALS: $GCP_KEY_PATH
         run: |
           source .venv/bin/activate
           echo "DVC version: $(dvc --version)"
-          # list remotes, if any
           dvc remote list || echo "No dvc remotes configured."
-          # If a GCS remote exists with common names, configure service account for it
+
           if dvc remote list | grep -q "^gcsremote" ; then
             echo "Configuring gcsremote credentialpath..."
-            dvc remote modify gcsremote credentialpath "$(pwd)/gcp-key.json"
+            dvc remote modify gcsremote credentialpath "$GCP_KEY_PATH"
           elif dvc remote list | grep -q "^gcs_remote" ; then
             echo "Configuring gcs_remote credentialpath..."
-            dvc remote modify gcs_remote credentialpath "$(pwd)/gcp-key.json"
+            dvc remote modify gcs_remote credentialpath "$GCP_KEY_PATH"
           else
             echo "No known GCS-named remote found; skipping remote credential modification."
           fi
-          # Attempt to pull (works even if no remotes; will be no-op)
+
           dvc pull -v || echo "dvc pull failed or nothing to pull; continuing"
+
 
       - name: Pre-training: Data Poisoning check
         id: poison_check
