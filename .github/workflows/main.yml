@@ -144,12 +144,30 @@ jobs:
           docker push $ARTIFACT_IMAGE:$SHA
           echo "IMAGE_SHA=$ARTIFACT_IMAGE:$SHA" >> $GITHUB_ENV
 
+
+        # -----------------------------
+      # Install GKE Pluggin
+      # -----------------------------
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          echo "🔧 Setting up Google Cloud APT repository..."
+          sudo apt-get update
+          sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
+          curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+          echo "🔧 Installing gke-gcloud-auth-plugin..."
+          sudo apt-get update
+          sudo apt-get install -y google-cloud-cli-gke-gcloud-auth-plugin
+          echo "✅ gke-gcloud-auth-plugin installed."
+
       # -----------------------------
       # GKE DEPLOYMENT
       # -----------------------------
       - name: Configure kubectl
         run: |
+          echo "🔗 Configuring kubectl for GKE cluster..."
           gcloud container clusters get-credentials $GKE_CLUSTER --zone $GKE_ZONE --project $PROJECT_ID
+          echo "✅ GKE credentials configured."
 
       #- name: Deploy to GKE
       # run: |
