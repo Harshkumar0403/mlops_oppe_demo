@@ -57,8 +57,6 @@ jobs:
           python3 -m json.tool gcp-key.json > /dev/null && echo "✓ Valid JSON"
           echo "Installing Google Cloud CLI..."
           sudo apt-get update && sudo apt-get install -y google-cloud-cli
-          echo "Installing GKE Auth Plugin..."
-          sudo apt-get install google-cloud-cli-gke-gcloud-auth-plugin
           echo "Authenticating with GCP..."
           gcloud auth activate-service-account --key-file=gcp-key.json
           gcloud config set project phonic-axle-473506-u8
